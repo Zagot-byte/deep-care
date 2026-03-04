@@ -1,250 +1,85 @@
 """
-chain.py — LangChain fixed pipeline
-Gemini 2.0 Flash handles intent classification + response generation
-Python tools handle all DB operations
-No n8n. No webhooks. One straight chain.
+chain.py — Direct Gemini 2.0 Flash call. No LangChain.
 """
 
-import os
-import json
+import os, json
+import google.generativeai as genai
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from pydantic import BaseModel, Field
-from typing import Optional
+from src.db.db_handler import (
+    get_order_status, get_order_tracking, get_current_bill,
+    get_payment_history, get_complaint_status,
+    create_complaint, escalate_complaint
+)
 
 load_dotenv("config.env")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = genai.GenerativeModel("gemini-2.0-flash")
 
-# ── MODEL ─────────────────────────────────────────────────
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    google_api_key=os.getenv("GOOGLE_API_KEY"),
-    temperature=0.3,
-    max_tokens=300,
-)
-
-
-# ── OUTPUT SCHEMA ──────────────────────────────────────────
-class IntentOutput(BaseModel):
-    intent: str = Field(description="One of the 10 intents below")
-    params: dict = Field(description="Extracted params like order_id, complaint text")
-    sentiment: str = Field(description="positive, neutral, or negative")
-
-
-class ResponseOutput(BaseModel):
-    response: str = Field(description="Natural language reply under 2 sentences")
-    key_points: list = Field(description="1-3 key points from this interaction")
-    suggested_action: str = Field(description="What the human agent should do next")
-    summary_text: str = Field(description="One sentence summary of this turn")
-
-
-# ── STEP 1: INTENT CLASSIFIER CHAIN ───────────────────────
-INTENT_SYSTEM = """You are an intent classifier for a voice customer service system.
-Given a customer transcript, return JSON with intent, params, and sentiment.
-
-INTENTS (pick exactly one):
-- order_status        → customer asking about order / delivery
-- order_tracking      → customer asking for tracking number
-- current_bill        → customer asking about bill amount or due date
-- payment_history     → customer asking about past payments
-- complaint_status    → customer asking about existing complaint
-- lodge_complaint     → customer reporting a new problem or issue
-- escalate            → customer wants human agent or supervisor
-- goodbye             → customer ending the call
-- confirm_yes         → customer saying yes to confirm an action
-- general             → anything else
-
-PARAMS to extract:
-- order_id: if mentioned (e.g. "ORD-4521")
-- complaint_id: if mentioned (e.g. "CMP-001")
-- issue: for lodge_complaint — the complaint text
-
-SENTIMENT:
-- negative: frustrated, angry, problem, wrong, terrible
-- positive: thanks, great, happy, resolved
-- neutral: everything else
-
-Return ONLY valid JSON. No markdown. No explanation."""
-
-INTENT_HUMAN = """Customer said: "{transcript}"
-Conversation so far: {history}
-
-Return JSON only."""
-
-intent_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", INTENT_SYSTEM),
-        ("human", INTENT_HUMAN),
-    ]
-)
-
-intent_chain = intent_prompt | llm | JsonOutputParser()
-
-
-# ── STEP 2: DB TOOL EXECUTOR ───────────────────────────────
-# Import all DB handlers
-import sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from src.db.db_handler import (
-    get_order_status,
-    get_order_tracking,
-    get_current_bill,
-    get_payment_history,
-    get_complaint_status,
-    create_complaint,
-    escalate_complaint,
-)
-
-
-def execute_db_tool(intent: str, params: dict, customer_dob: str) -> dict:
-    """
-    Executes the right DB operation based on intent.
-    Returns dict with db_result and action_taken.
-    """
-    try:
-        if intent == "order_status":
-            result = get_order_status(customer_dob, params.get("order_id"))
-            return {"db_result": result, "action": "READ orders"}
-
-        elif intent == "order_tracking":
-            result = get_order_tracking(customer_dob, params.get("order_id"))
-            return {"db_result": result, "action": "READ orders.tracking"}
-
-        elif intent == "current_bill":
-            result = get_current_bill(customer_dob)
-            return {"db_result": result, "action": "READ bills"}
-
-        elif intent == "payment_history":
-            result = get_payment_history(customer_dob)
-            return {"db_result": result, "action": "READ payment_history"}
-
-        elif intent == "complaint_status":
-            result = get_complaint_status(customer_dob, params.get("complaint_id"))
-            return {"db_result": result, "action": "READ complaints"}
-
-        elif intent == "lodge_complaint":
-            issue = params.get("issue", "Customer reported an issue")
-            result = create_complaint(customer_dob, issue)
-            return {"db_result": result, "action": "WRITE complaints.create"}
-
-        elif intent == "escalate":
-            result = escalate_complaint(customer_dob, params.get("complaint_id"))
-            return {"db_result": result, "action": "WRITE complaints.escalate"}
-
-        else:
-            return {"db_result": {}, "action": None}
-
-    except Exception as e:
-        print(f"[DB Tool Error] {e}")
-        return {"db_result": {}, "action": None}
-
-
-# ── STEP 3: RESPONSE GENERATOR CHAIN ──────────────────────
-RESPONSE_SYSTEM = """You are Deep Care, a professional voice customer service AI.
-You are speaking with {customer_name}.
+PROMPT = """You are Deep Care, a professional voice customer service AI speaking with {customer_name}.
 
 Customer context:
 {customer_context}
 
-DB result for this query:
-{db_result}
+History:
+{history}
 
-Rules:
-- Reply in 1-2 sentences ONLY. This is a voice call — be concise.
-- Be warm and professional. Never robotic.
-- Use actual data from DB result above — never make up numbers or IDs.
-- If DB result is empty, say you'll look into it.
-- For complaints: be empathetic first, then practical.
-- For escalation: confirm transfer warmly.
+INTENTS: order_status | order_tracking | current_bill | payment_history | complaint_status | lodge_complaint | escalate | goodbye | general
 
-Return ONLY valid JSON. No markdown. No explanation."""
+Customer said: "{transcript}"
 
-RESPONSE_HUMAN = """Customer said: "{transcript}"
-Intent detected: {intent}
+Return ONLY valid JSON, no markdown:
+{{
+  "intent": "...",
+  "params": {{}},
+  "sentiment": "positive|neutral|negative",
+  "response": "1-2 sentence voice reply",
+  "key_points": ["point1"],
+  "suggested_action": "what agent should do",
+  "summary_text": "one sentence summary"
+}}"""
 
-Return JSON with: response, key_points (list), suggested_action, summary_text"""
-
-response_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", RESPONSE_SYSTEM),
-        ("human", RESPONSE_HUMAN),
-    ]
-)
-
-response_chain = response_prompt | llm | JsonOutputParser()
-
-
-# ── MASTER CHAIN ───────────────────────────────────────────
-def run_chain(
-    transcript: str,
-    customer_dob: str,
-    customer_name: str,
-    customer_context: str,
-    history: str = "",
-) -> dict:
-    """
-    Full pipeline:
-    1. Classify intent
-    2. Execute DB tool
-    3. Generate response
-
-    Returns complete result dict.
-    """
-
-    # Step 1 — Intent classification
+def execute_db_tool(intent, params, customer_dob):
     try:
-        intent_result = intent_chain.invoke(
-            {
-                "transcript": transcript,
-                "history": history or "No previous turns.",
-            }
-        )
+        if intent == "order_status":
+            return get_order_status(customer_dob, params.get("order_id"))
+        elif intent == "order_tracking":
+            return get_order_tracking(customer_dob, params.get("order_id"))
+        elif intent == "current_bill":
+            return get_current_bill(customer_dob)
+        elif intent == "payment_history":
+            return get_payment_history(customer_dob)
+        elif intent == "complaint_status":
+            return get_complaint_status(customer_dob, params.get("complaint_id"))
+        elif intent == "lodge_complaint":
+            return create_complaint(customer_dob, params.get("issue", "Issue reported"))
+        elif intent == "escalate":
+            return escalate_complaint(customer_dob, params.get("complaint_id", ""))
+        else:
+            return {}
     except Exception as e:
-        print(f"[Intent Chain Error] {e}")
-        intent_result = {"intent": "general", "params": {}, "sentiment": "neutral"}
+        print(f"[DB] {e}")
+        return {}
 
-    intent = intent_result.get("intent", "general")
-    params = intent_result.get("params", {})
-    sentiment = intent_result.get("sentiment", "neutral")
-
-    # Step 2 — DB tool execution
-    db_data = execute_db_tool(intent, params, customer_dob)
-    db_result = db_data.get("db_result", {})
-    action = db_data.get("action")
-
-    # Step 3 — Response generation
+def run_chain(transcript, customer_dob, customer_name, customer_context, history=""):
     try:
-        response_result = response_chain.invoke(
-            {
-                "transcript": transcript,
-                "intent": intent,
-                "customer_name": customer_name,
-                "customer_context": customer_context,
-                "db_result": json.dumps(db_result, indent=2)
-                if db_result
-                else "No data found.",
-            }
+        prompt = PROMPT.format(
+            transcript       = transcript,
+            customer_name    = customer_name,
+            customer_context = customer_context,
+            history          = history or "No previous turns."
         )
+        resp = model.generate_content(prompt)
+        raw  = resp.text.strip().removeprefix("```json").removesuffix("```").strip()
+        result = json.loads(raw)
     except Exception as e:
-        print(f"[Response Chain Error] {e}")
-        response_result = {
-            "response": "I'm here to help. Could you repeat that?",
-            "key_points": [],
-            "suggested_action": "Review interaction logs.",
-            "summary_text": "Error in processing.",
+        print(f"[Gemini] {e}")
+        result = {
+            "intent": "general", "params": {}, "sentiment": "neutral",
+            "response": "I'm having trouble right now. Could you repeat that?",
+            "key_points": [], "suggested_action": "Review logs.", "summary_text": "Error."
         }
 
-    return {
-        "intent": intent,
-        "params": params,
-        "sentiment": sentiment,
-        "action": action,
-        "db_result": db_result,
-        "response": response_result.get("response", ""),
-        "key_points": response_result.get("key_points", []),
-        "suggested_action": response_result.get("suggested_action", ""),
-        "summary_text": response_result.get("summary_text", ""),
-    }
+    intent    = result.get("intent", "general")
+    db_result = execute_db_tool(intent, result.get("params", {}), customer_dob)
 
+    return {**result, "db_result": db_result}

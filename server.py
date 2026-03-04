@@ -2,16 +2,13 @@
 server.py — Deep Care Voice Gateway (LangChain version)
 No n8n. FastAPI + LangChain + Gemini 2.0 Flash.
 """
-
 import os, uuid, base64
+from dotenv import load_dotenv
+load_dotenv("config.env")
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-
-load_dotenv("config.env")
-
 from src.stt.whisper_engine import transcribe_audio
 from src.tts.elevenlabs_client import speak
 from src.auth.dob_auth import (
