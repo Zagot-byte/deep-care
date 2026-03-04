@@ -14,6 +14,8 @@ def create_session(session_id: str) -> dict:
         "customer_dob": None,
         "customer_name": None,
         "customer_id": None,
+        "language": "en",
+        "language_confirmed" : False, 
         "start_time": datetime.now().isoformat(),
         "turns": [],
         "intents_seen": [],
