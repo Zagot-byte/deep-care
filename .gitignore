@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.env/
+venv/
+ENV/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Secrets & Local Config
+config.env
+.env
+*.env.bak
+*.env.local
+
+# Logs and DB
+mock_data.json.bak
+mock_data.json.tmp
+*.log

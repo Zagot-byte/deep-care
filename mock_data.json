@@ -1,0 +1,95 @@
+{
+  "customers": {
+    "15-03-1999": {
+      "name": "Arjun Kumar",
+      "customer_id": "DCID-4521",
+      "phone": "+91-9876543210",
+      "email": "arjun@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-4521",
+          "item": "Laptop Stand",
+          "status": "Delivered",
+          "tracking": "TRK998123",
+          "address": "12 MG Road, Bangalore",
+          "delivery_date": "2024-03-01",
+          "amount": 1299,
+          "refund": null,
+          "return": null
+        },
+        {
+          "order_id": "ORD-4522",
+          "item": "Wireless Mouse",
+          "status": "Out for Delivery",
+          "tracking": "TRK998456",
+          "address": "12 MG Road, Bangalore",
+          "delivery_date": "2024-03-10",
+          "amount": 799,
+          "refund": null,
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-001",
+          "month": "March 2024",
+          "amount": 2400,
+          "due_date": "2024-03-20",
+          "paid": false,
+          "breakdown": { "base_plan": 1999, "add_ons": 401 },
+          "history": [
+            { "month": "Feb 2024", "amount": 2100, "paid": true, "paid_on": "2024-02-18" },
+            { "month": "Jan 2024", "amount": 1950, "paid": true, "paid_on": "2024-01-15" }
+          ],
+          "dispute": null,
+          "autopay": false
+        }
+      ],
+      "complaints": [
+        {
+          "complaint_id": "CMP-001",
+          "issue": "Billing overcharge on February bill",
+          "status": "open",
+          "created": "2024-03-01",
+          "escalated": false,
+          "resolution": null
+        }
+      ],
+      "session_history": []
+    },
+    "20-05-1995": {
+      "name": "Priya Sharma",
+      "customer_id": "DCID-7891",
+      "phone": "+91-9123456789",
+      "email": "priya@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-7891",
+          "item": "Bluetooth Speaker",
+          "status": "Processing",
+          "tracking": null,
+          "address": "45 Anna Nagar, Chennai",
+          "delivery_date": null,
+          "amount": 2499,
+          "refund": null,
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-002",
+          "month": "March 2024",
+          "amount": 1800,
+          "due_date": "2024-03-25",
+          "paid": false,
+          "breakdown": { "base_plan": 1499, "add_ons": 301 },
+          "history": [],
+          "dispute": null,
+          "autopay": true
+        }
+      ],
+      "complaints": [],
+      "session_history": []
+    }
+  }
+}
