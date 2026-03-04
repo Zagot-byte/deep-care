@@ -1,9 +1,8 @@
 """
-chain.py — Direct Gemini 2.0 Flash call. No LangChain.
+chain.py — Direct Gemini 2.5 Flash call. No LangChain.
 """
-
 import os, json
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 from src.db.db_handler import (
     get_order_status, get_order_tracking, get_current_bill,
@@ -12,21 +11,17 @@ from src.db.db_handler import (
 )
 
 load_dotenv("config.env")
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("gemini-2.0-flash")
+
+client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+MODEL = "gemini-2.5-flash-preview-04-17"
 
 PROMPT = """You are Deep Care, a professional voice customer service AI speaking with {customer_name}.
-
 Customer context:
 {customer_context}
-
 History:
 {history}
-
 INTENTS: order_status | order_tracking | current_bill | payment_history | complaint_status | lodge_complaint | escalate | goodbye | general
-
 Customer said: "{transcript}"
-
 Return ONLY valid JSON, no markdown:
 {{
   "intent": "...",
@@ -68,8 +63,11 @@ def run_chain(transcript, customer_dob, customer_name, customer_context, history
             customer_context = customer_context,
             history          = history or "No previous turns."
         )
-        resp = model.generate_content(prompt)
-        raw  = resp.text.strip().removeprefix("```json").removesuffix("```").strip()
+        resp = client.models.generate_content(
+            model=MODEL,
+            contents=prompt
+        )
+        raw = resp.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         result = json.loads(raw)
     except Exception as e:
         print(f"[Gemini] {e}")
@@ -81,5 +79,4 @@ def run_chain(transcript, customer_dob, customer_name, customer_context, history
 
     intent    = result.get("intent", "general")
     db_result = execute_db_tool(intent, result.get("params", {}), customer_dob)
-
     return {**result, "db_result": db_result}
