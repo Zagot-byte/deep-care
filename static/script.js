@@ -5,30 +5,71 @@ const waveform = document.getElementById('waveform');
 const liveText = document.getElementById('live-transcript');
 const convoLog = document.getElementById('convo-log');
 const sysStatus = document.getElementById('sys-status');
+const endBtn = document.getElementById('end-call-btn');  // ← add this button in HTML
 
 let recorder, chunks = [], stream, recording = false;
 let sessionId = null;
 let currentAudio = null;
 let sessionStart = null;
 let turnCount = 0;
+let sessionReady = false;   // ← race condition guard
+let callEnded = false;      // ← prevent double-end
 
 // ── START SESSION ON PAGE LOAD ────────────────
 window.addEventListener('load', async () => {
     try {
+        setStatus('Connecting…', 'waiting');
         const res = await fetch('/session/start', { method: 'POST' });
         const data = await res.json();
         sessionId = data.session_id;
         sessionStart = new Date();
+        sessionReady = true;   // ← now safe to send audio
+
+        // Show STT loading state if whisper still warming up
+        if (!data.stt_ready) {
+            sysStatus.textContent = 'STT Loading…';
+            setStatus('AI warming up, please wait…', 'waiting');
+            await waitForSTT();
+        }
+
         sysStatus.textContent = 'Session Started';
+        setStatus('Tap to speak', '');
         if (data.audio_b64) playAudio(data.audio_b64);
+
+        // Enable buttons now that session is ready
+        btn.disabled = false;
+        if (endBtn) endBtn.disabled = false;
+
     } catch (e) {
         console.error('Session start failed:', e);
         sysStatus.textContent = 'Server Offline';
+        setStatus('Cannot connect to server', 'error');
     }
 });
 
+// Poll /health until stt = ready
+async function waitForSTT() {
+    for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+            const res = await fetch('/health');
+            const data = await res.json();
+            if (data.stt === 'ready') {
+                sysStatus.textContent = 'STT Ready';
+                return;
+            }
+            sysStatus.textContent = `STT Loading… (${i * 2}s)`;
+        } catch {}
+    }
+}
+
 // ── MIC BUTTON ────────────────────────────────
 btn.addEventListener('click', async () => {
+    if (!sessionReady) {
+        setStatus('Session not ready yet…', 'waiting');
+        return;
+    }
+    if (callEnded) return;
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
     recording ? stopRecording() : await startRecording();
 });
@@ -37,7 +78,7 @@ async function startRecording() {
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
-        setStatus(`${err.name}: ${err.message}`, 'error');
+        setStatus(`Mic error: ${err.message}`, 'error');
         return;
     }
     chunks = [];
@@ -66,6 +107,8 @@ function stopRecording() {
 
 // ── SEND AUDIO ────────────────────────────────
 async function sendAudio() {
+    if (callEnded) return;
+
     const blob = new Blob(chunks, { type: 'audio/webm' });
     try {
         const res = await fetch('/send', {
@@ -79,26 +122,34 @@ async function sendAudio() {
 
         const data = await res.json();
 
-        // Update session ID if server issued new one
         if (data.session_id) sessionId = data.session_id;
 
         const transcript = data.transcript || '';
-        const botReply = data.response || '';
+        const botReply   = data.response   || '';
 
         updateLiveTranscript(transcript);
         if (transcript) addTurn('user', transcript);
-        if (botReply) addTurn('bot', botReply);
+        if (botReply)   addTurn('bot', botReply);
 
-        // Play audio
         if (data.audio_b64) playAudio(data.audio_b64);
 
+        // Show current language in UI
+        if (data.language && data.language !== 'en') {
+            sysStatus.textContent = `Active · ${data.language.toUpperCase()}`;
+        } else {
+            sysStatus.textContent = 'Active';
+        }
+
         setStatus('Received ✓', 'ok');
-        sysStatus.textContent = 'Active';
         setTimeout(() => setStatus('Tap to speak', ''), 3500);
 
-        // Render summary — prefer server summary, fallback to local
         if (data.summary) renderSummary(data.summary);
         else updateSummaryFromConvo();
+
+        // Auto end if bot said goodbye
+        if (data.intent === 'goodbye' || data.ended) {
+            setTimeout(() => endCall(), 2000);  // wait for audio to finish
+        }
 
     } catch (e) {
         console.error(e);
@@ -107,13 +158,51 @@ async function sendAudio() {
     }
 }
 
+// ── END CALL ──────────────────────────────────
+if (endBtn) {
+    endBtn.addEventListener('click', () => endCall());
+}
+
+async function endCall() {
+    if (callEnded) return;
+    callEnded = true;
+
+    // Stop any ongoing recording
+    if (recording) stopRecording();
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+
+    // Disable UI
+    btn.disabled = true;
+    if (endBtn) endBtn.disabled = true;
+    setStatus('Call ended', '');
+    sysStatus.textContent = 'Ended';
+
+    try {
+        const res = await fetch('/session/end', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: sessionId }),
+        });
+        const data = await res.json();
+
+        if (data.audio_b64) playAudio(data.audio_b64);
+        if (data.summary)   renderSummary(data.summary);
+
+        sysStatus.textContent = 'Session Complete';
+        addTurn('bot', '— Call ended. Summary saved. —');
+
+    } catch (e) {
+        console.error('End call failed:', e);
+    }
+}
+
 // ── PLAY AUDIO ────────────────────────────────
 function playAudio(b64) {
     const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
+    const bytes  = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const blob = new Blob([bytes], { type: 'audio/mpeg' });
-    const url = URL.createObjectURL(blob);
+    const url  = URL.createObjectURL(blob);
     currentAudio = new Audio(url);
     currentAudio.play();
     currentAudio.onended = () => URL.revokeObjectURL(url);
@@ -125,9 +214,9 @@ function addTurn(role, text) {
     const div = document.createElement('div');
     div.className = `turn ${role}`;
     div.innerHTML = `
-<div class="turn-label">${role === 'user' ? 'You' : 'Deep Care AI'}</div>
-<div class="turn-text">${escHtml(text)}</div>
-`;
+        <div class="turn-label">${role === 'user' ? 'You' : 'Deep Care AI'}</div>
+        <div class="turn-text">${escHtml(text)}</div>
+    `;
     convoLog.appendChild(div);
     convoLog.scrollTop = convoLog.scrollHeight;
 }
@@ -142,24 +231,24 @@ function renderSummary(data) {
     const card = document.getElementById('summary-card');
     card.classList.add('visible');
 
-    document.getElementById('s-name').textContent = data.name || '—';
-    document.getElementById('s-dob').textContent = data.dob || data.customer_id || '—';
+    document.getElementById('s-name').textContent     = data.name || '—';
+    document.getElementById('s-dob').textContent      = data.dob || data.customer_id || '—';
     document.getElementById('s-duration').textContent = data.duration || formatDuration(new Date() - sessionStart);
-    document.getElementById('s-time').textContent = data.time || new Date().toLocaleTimeString();
-    document.getElementById('s-summary').textContent = data.summary || '—';
-    document.getElementById('s-action').textContent = data.suggested_action || data.action || '—';
-    document.getElementById('s-footer').textContent = `Session · ${data.duration || '—'} · ${turnCount} turns`;
+    document.getElementById('s-time').textContent     = data.time || new Date().toLocaleTimeString();
+    document.getElementById('s-summary').textContent  = data.summary || '—';
+    document.getElementById('s-action').textContent   = data.suggested_action || data.action || '—';
+    document.getElementById('s-footer').textContent   = `Session · ${data.duration || '—'} · ${turnCount} turns`;
 
     const badge = document.getElementById('s-sentiment');
-    const sent = data.sentiment || 'neutral';
+    const sent  = data.sentiment || 'neutral';
     badge.textContent = sent.charAt(0).toUpperCase() + sent.slice(1);
-    badge.className = `sentiment-badge ${sent}`;
+    badge.className   = `sentiment-badge ${sent}`;
 
     const intentRow = document.getElementById('s-intents');
     intentRow.innerHTML = '';
     (data.intents || data.intents_seen || []).forEach(i => {
         const tag = document.createElement('span');
-        tag.className = 'intent-tag';
+        tag.className   = 'intent-tag';
         tag.textContent = i;
         intentRow.appendChild(tag);
     });
@@ -180,12 +269,12 @@ function updateSummaryFromConvo() {
     const neg = ['frustrated', 'wrong', 'problem', 'complaint', 'issue'].filter(w => combined.includes(w)).length;
     const pos = ['thank', 'great', 'happy', 'resolved'].filter(w => combined.includes(w)).length;
     renderSummary({
-        name: document.getElementById('s-name').textContent || 'Customer',
-        sentiment: neg > 1 ? 'negative' : pos > 0 ? 'positive' : 'neutral',
-        duration: formatDuration(new Date() - sessionStart),
-        intents: [],
-        key_points: [...convoLog.querySelectorAll('.turn.bot .turn-text')].slice(-3).map(el => el.textContent.slice(0, 80)),
-        summary: `${turnCount} turns completed.`,
+        name:             document.getElementById('s-name').textContent || 'Customer',
+        sentiment:        neg > 1 ? 'negative' : pos > 0 ? 'positive' : 'neutral',
+        duration:         formatDuration(new Date() - sessionStart),
+        intents:          [],
+        key_points:       [...convoLog.querySelectorAll('.turn.bot .turn-text')].slice(-3).map(el => el.textContent.slice(0, 80)),
+        summary:          `${turnCount} turns completed.`,
         suggested_action: neg > 1 ? 'Follow up within 24 hours.' : 'No immediate action needed.'
     });
 }
@@ -193,7 +282,7 @@ function updateSummaryFromConvo() {
 // ── HELPERS ───────────────────────────────────
 function setStatus(msg, cls = '') {
     status.textContent = msg;
-    status.className = cls;
+    status.className   = cls;
 }
 function escHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

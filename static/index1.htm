@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deep Care — Voice Gateway</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+        <div class="logo">
+            <div class="logo-icon">🩺</div>
+            <div>
+                <div class="logo-text">Deep Care</div>
+                <div class="logo-sub">Voice Gateway MVP</div>
+            </div>
+        </div>
+        <div class="status-pill">
+            <span class="status-dot"></span>
+            <span id="sys-status">System Ready</span>
+        </div>
+    </header>
+
+    <!-- SPLIT LAYOUT -->
+    <div class="layout">
+
+        <!-- ── LEFT: CALL PANEL ── -->
+        <div class="panel">
+            <div class="panel-label">Voice Interface</div>
+
+            <div class="call-center">
+
+                <!-- Mic -->
+                <div class="mic-wrap" id="mic-wrap">
+                    <div class="ring ring-1"></div>
+                    <div class="ring ring-2"></div>
+                    <button id="mic-btn" title="Tap to speak">
+                        <svg viewBox="0 0 24 24">
+                            <path
+                                d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-6.5 9a.5.5 0 0 1 .5.5A6.5 6.5 0 0 0 12 17a6.5 6.5 0 0 0 6.5-6.5.5.5 0 0 1 1 0A7.5 7.5 0 0 1 12.75 18v2.5h2a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1 0-1.5h2V18A7.5 7.5 0 0 1 5 10.5a.5.5 0 0 1 .5-.5z" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="waveform" id="waveform">
+                    <span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span>
+                </div>
+
+                <span id="call-status">Tap to speak</span>
+
+            </div>
+
+            <!-- Live transcript -->
+            <div class="transcript-box">
+                <div class="label">Live Transcript</div>
+                <div class="text" id="live-transcript">—</div>
+            </div>
+
+            <!-- Conversation log -->
+            <div class="panel-label">Conversation</div>
+            <div class="convo-log" id="convo-log">
+                <!-- turns injected here -->
+            </div>
+
+        </div>
+
+        <!-- DIVIDER -->
+        <div class="divider"></div>
+
+        <!-- ── RIGHT: SUMMARY PANEL ── -->
+        <div class="panel summary-panel">
+            <div class="panel-label">Agent Summary</div>
+
+            <!-- Empty state -->
+            <div class="summary-empty" id="summary-empty">
+                <div class="icon">📋</div>
+                <div>Summary will appear<br />after the call completes</div>
+            </div>
+
+            <!-- Summary card -->
+            <div class="summary-card" id="summary-card">
+
+                <!-- Identity -->
+                <div class="identity-block">
+                    <div class="id-field">
+                        <div class="key">Customer Name</div>
+                        <div class="val" id="s-name">—</div>
+                    </div>
+                    <div class="id-field">
+                        <div class="key">Customer ID / DOB</div>
+                        <div class="val accent" id="s-dob">—</div>
+                    </div>
+                    <div class="id-field">
+                        <div class="key">Call Duration</div>
+                        <div class="val accent" id="s-duration">—</div>
+                    </div>
+                    <div class="id-field">
+                        <div class="key">Timestamp</div>
+                        <div class="val" id="s-time">—</div>
+                    </div>
+                </div>
+
+                <!-- Sentiment -->
+                <div class="sentiment-row">
+                    <span class="sentiment-label">Customer Sentiment</span>
+                    <span class="sentiment-badge neutral" id="s-sentiment">Neutral</span>
+                </div>
+
+                <!-- Intent tags -->
+                <div class="summary-block">
+                    <div class="block-title">Query Types Detected</div>
+                    <div class="intent-row" id="s-intents">
+                        <!-- tags injected -->
+                    </div>
+                </div>
+
+                <!-- Conversation Summary -->
+                <div class="summary-block">
+                    <div class="block-title">Conversation Summary</div>
+                    <p id="s-summary">—</p>
+                </div>
+
+                <!-- Key Points -->
+                <div class="summary-block">
+                    <div class="block-title">Key Points</div>
+                    <ul class="key-points" id="s-keypoints">
+                        <!-- items injected -->
+                    </ul>
+                </div>
+
+                <!-- Suggested Action -->
+                <div class="action-block">
+                    <div class="action-icon">⚡</div>
+                    <div class="action-content">
+                        <div class="action-title">Suggested Action for Agent</div>
+                        <p id="s-action">—</p>
+                    </div>
+                </div>
+
+                <div class="summary-footer" id="s-footer">—</div>
+
+            </div>
+        </div>
+
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
