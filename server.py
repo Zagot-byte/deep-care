@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from src.stt.whisper_engine import transcribe_audio
+from src.stt.whisper_engine import transcribe_audio, load_model_at_startup
 from src.tts.elevenlabs_client import speak
 from src.auth.dob_auth import (
     extract_dob,
@@ -29,6 +29,16 @@ from src.llm.chain import run_chain
 
 app = FastAPI(title="Deep Care Voice Gateway")
 
+@app.on_event("startup")
+async def startup_event():
+    print("[Server] Starting up — loading Whisper into RAM...")
+    load_model_at_startup()
+    print("[Server] All models ready. Accepting requests.")
+
+@app.on_event("shutdown")  
+async def shutdown_event():
+    print("[Server] Shutting down — Whisper will be released from RAM.")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,7 +56,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "model": "gemini-2.0-flash", "chain": "langchain"}
+    return {"status": "ok", "model": "gemini-2.5-flash-preview-04-17", "chain": "langchain"}
 
 
 @app.post("/session/start")
