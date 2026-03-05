@@ -1,382 +1,178 @@
-# CONTEXT.md — Deep Care Voice Gateway
-# Updated: Session 2 — Multilingual + Whisper BG Load + Test Suite
+# Deep Care Voice Gateway — CONTEXT.md
+> Paste this at the start of any new chat to resume exactly where we left off.
 
 ---
 
-## WHAT IS THIS
-
-Deep Care is a Voice-Based AI Gateway for enterprise customer service.
-Caller speaks → authenticates via DOB → understands query →
-fetches real data → speaks back → hands off to human agent with full context card.
-
-Hackathon MVP. Python 3.11, Arch Linux, RTX 4050 6GB.
+## What This Is
+Enterprise voice AI customer service gateway. Customer calls via browser mic, authenticates by DOB, speaks in any Indian language, gets answers from real DB data narrated by Gemini. Full agent handoff summary at call end.
 
 ---
 
-## CURRENT STATUS
-
-```
-✅ server.py              — FastAPI, background Whisper load, multilingual flow
-✅ src/stt/whisper_engine — faster-whisper (int8 CPU), loads once at startup
-✅ src/tts/elevenlabs_client — gTTS fallback (ElevenLabs key invalid), multilingual
-✅ src/auth/dob_auth      — DOB extraction + lookup
-✅ src/db/db_handler      — 9 DB operations
-✅ src/llm/chain.py       — Gemini 2.5 Flash, direct API (google-genai SDK)
-✅ src/session/           — session_manager + summary_generator
-✅ static/index.html      — split screen UI
-✅ static/script.js       — race condition fixed, end call wired, STT polling
-✅ mock_data.json         — 2 demo customers
-✅ tests/test_deep_care.py — 62 tests, 61/62 passing
-```
+## Stack
+| Layer | Tech |
+|---|---|
+| Runtime | Python 3.11, FastAPI, uvicorn SSL |
+| STT | faster-whisper small int8 CPU — background thread |
+| LLM | Gemini 2.5 Flash via google-genai (native function calling) |
+| TTS | ElevenLabs primary → gTTS fallback (all Indian languages) |
+| DB | mock_data.json default, PostgreSQL via DB_BACKEND=postgres |
+| Frontend | Vanilla JS — index.html + script.js + style.css |
 
 ---
 
-## TECH STACK
-
+## Project Structure
 ```
-Server:    FastAPI + Uvicorn (Python 3.11)
-STT:       faster-whisper small (CPU, int8) — installed from openai/whisper git
-LLM:       Google Gemini 2.5 Flash (google-genai SDK, direct API, no LangChain)
-TTS:       gTTS fallback (ElevenLabs 401 — key needs renewal)
-DB:        mock_data.json (swappable to PostgreSQL)
-UI:        Vanilla HTML/CSS/JS split screen
-Auth:      DOB extraction via dateutil + regex
-Tests:     pytest, 62 tests, unittest.mock (no real API calls)
-```
-
----
-
-## ENVIRONMENT
-
-```
-Python:    3.11.14 (venv: .env3.11)
-OS:        Arch Linux
-GPU:       RTX 4050 6GB — nvidia driver CRASHED (needs reinstall after kernel update)
-CPU:       Set to performance governor (was powersave)
-Whisper:   faster-whisper installed, openai-whisper also installed from source
-           Model: small (~461MB), cached at ~/.cache/whisper/small.pt (was corrupted, redownloaded)
-Run:       sh run.sh → activates .env3.11, starts uvicorn with SSL
+deep-care/
+├── server.py                     FastAPI app, Whisper bg thread, session flow
+├── config.env                    GOOGLE_API_KEY, ELEVENLABS_API_KEY, DB_BACKEND
+├── mock_data.json                Customer DB (JSON backend)
+├── run.sh                        Activates .env3.11, starts uvicorn SSL
+├── setup_postgres.sql            10 demo customers
+├── static/
+│   ├── index.html                Left: call UI | Right: summary panel
+│   ├── script.js                 Session, mic, audio, summary rendering
+│   └── style.css                 Dark minimal theme
+└── src/
+    ├── auth/dob_auth.py          DOB extraction + customer lookup
+    ├── db/db_handler.py          All DB ops — reads mock_data.json exactly
+    ├── llm/chain.py              Gemini 2-turn tool calling pipeline
+    ├── session/session_manager.py
+    ├── session/summary_generator.py
+    ├── stt/whisper_engine.py     faster-whisper
+    └── tts/elevenlabs_client.py  ElevenLabs + gTTS multilingual fallback
 ```
 
 ---
 
-## PIPELINE FLOW
-
+## Call Flow
 ```
-1.  Page loads → POST /session/start → welcome audio plays
-    └─ sessionReady = true (race condition guard)
-    └─ Whisper loads in background thread (_whisper_ready event)
-    └─ Frontend polls /health until stt="ready"
-
-2.  User clicks mic → records webm audio → clicks stop
-
-3.  POST /send (audio bytes + x-session-id header)
-
-4.  Whisper transcribes → transcript + confidence
-    └─ If _whisper_ready not set → waits up to 60s polling
-
-5.  If not authenticated:
-        extract DOB → lookup mock_data.json
-        found     → greet by name + ask language preference
-        not found → ask again
-
-6.  Language selection gate (NEW):
-        Customer says language → session["language"] locked
-        session["language_confirmed"] = True
-        Bot confirms in chosen language
-
-7.  If authenticated + language confirmed:
-        load customer data from DB
-        load last 6 turns from session
-        Gemini 2.5 Flash: classify intent + generate response
-            → always reasons in English internally
-            → response field written in customer's language
-        Python executes DB tool based on intent
-        gTTS converts response → mp3 (in session language)
-
-8.  Return JSON: { session_id, transcript, response,
-                   intent, audio_b64, db_result, summary,
-                   language, stt_ready, ended }
-
-9.  Browser decodes audio_b64 → plays
-    └─ If intent=goodbye or ended=true → endCall() fires after 2s
-
-10. End Call:
-        Button click OR voice goodbye → POST /session/end
-        Summary card rendered, goodbye audio plays
-        Buttons disabled, session marked complete
+Browser mic → /send audio blob
+  → Whisper STT → transcript
+  → Auth gate (DOB)
+  → Language selection (locked for session)
+  → load_customer(dob) → context string
+  → Gemini Turn 1: sees tools, calls the right one
+  → Python executes tool → real data returned
+  → Gemini Turn 2: narrates ONLY what Python returned
+  → Classify call: intent + sentiment + summary
+  → TTS → audio_b64
+  → Frontend: plays audio, updates log, updates summary panel
 ```
 
 ---
 
-## HALLUCINATION CONTROL
+## CRITICAL: mock_data.json Bill Structure
+Bills use `"paid": true/false` NOT `"status": "paid"`. The old db_handler was broken because of this mismatch. Fixed now.
 
-### Core Pattern: Python Fetches, Gemini Narrates
-
-```
-Step 1: Gemini classifies intent
-        → { intent: "order_status", params: { order_id: "ORD-4521" } }
-
-Step 2: Python runs db_handler
-        → { order_id: "ORD-4521", item: "Laptop Stand", status: "Delivered" }
-
-Step 3: DB result injected into Gemini prompt
-        → Gemini describes ONLY what Python returned
-```
-
-Gemini NEVER guesses. If DB returns empty → bot says "I'll look into it."
-
-### Multilingual Hallucination Guard
-
-```
-❌ WRONG: Ask Gemini to think in Tamil → ~40% hallucination rate
-✅ CORRECT:
-   - Gemini always reasons in English internally
-   - Only "response" field is written in target language
-   - All other JSON fields (intent, sentiment, params) stay English
-   - Accuracy stays at 90%+
+```json
+"bills": [{
+  "bill_id": "BILL-001",
+  "month": "March 2024",
+  "amount": 2400,
+  "due_date": "2024-03-20",
+  "paid": false,
+  "breakdown": {"base_plan": 1999, "add_ons": 401},
+  "history": [{"month": "Feb 2024", "amount": 2100, "paid": true, "paid_on": "2024-02-18"}],
+  "dispute": null,
+  "autopay": false
+}]
 ```
 
 ---
 
-## HUMAN IN LOOP
-
-```python
-if chain_result["intent"] == "escalate":
-    session["escalated"] = True   # flag only — bot keeps running
-```
-
-Auto-escalation: 2 consecutive negative sentiment turns → bot appends transfer message.
-
-### Handoff Card
-
-```
-POST /session/end → summary card with:
-- Customer name + ID + DOB
-- Full transcript
-- All intents detected
-- Sentiment trajectory
-- Actions taken
-- Suggested action for agent
-- Duration + timestamp
-- Language used
-```
+## DB Tools (db_handler.py)
+| Function | Purpose |
+|---|---|
+| load_customer(dob) | Full customer dict |
+| get_customer_context_string(customer) | Clean string for Gemini |
+| get_order_status(dob, order_id=None) | All orders or specific |
+| get_order_tracking(dob, order_id) | Tracking + address |
+| get_current_bill(dob) | First unpaid bill |
+| get_payment_history(dob) | Bill + history |
+| get_complaint_status(dob, complaint_id=None) | All or specific complaint |
+| create_complaint(dob, issue) | New complaint → saved to JSON |
+| escalate_complaint(dob, complaint_id) | Mark escalated |
+| raise_bill_dispute(dob, reason) | Dispute on current bill |
+| save_session(dob, session_data) | Append to session_history |
 
 ---
 
-## MULTILINGUAL ARCHITECTURE
-
-### Language Selection Flow (NEW — implemented)
-
-```
-After DOB auth → bot asks: "Which language? English/Tamil/Hindi/Telugu/Kannada"
-Customer responds → detect_language_choice() matches keyword or native script
-session["language"] = "ta"        ← locked for entire session
-session["language_confirmed"] = True
-
-Bot confirms in chosen language:
-  Tamil:   "சரி! நான் தமிழில் தொடர்வேன்."
-  Hindi:   "बिल्कुल! मैं हिंदी में जारी रखूंगा।"
-  Telugu:  "సరే! నేను తెలుగులో కొనసాగిస్తాను."
-  Kannada: "ಸರಿ! ನಾನು ಕನ್ನಡದಲ್ಲಿ ಮುಂದುವರಿಯುತ್ತೇನೆ."
-```
-
-### TTS Language Map (gTTS)
-
-```python
-GTTS_LANG_MAP = {
-    "en": "en", "ta": "ta", "hi": "hi", "te": "te",
-    "kn": "kn", "bn": "bn", "ml": "ml", "gu": "gu",
-    "mr": "mr", "pa": "pa"
-}
-```
-
-### Roadmap
-
-```
-Phase 1 (MVP):     English only + language selection UI   ← current
-Phase 2 (Month 2): Tamil via gTTS (working now)
-Phase 3 (Month 3): Hindi, Telugu, Kannada
-Phase 4 (Month 4): IndicTrans2 + Coqui TTS for better quality
-Phase 5 (Month 5): All 22 Indian languages
-```
+## Gemini Tool Calling (chain.py)
+Turn 1 → Gemini decides tool → function_call returned
+Python executes tool → db_result
+Turn 2 → Gemini gets tool_result → narrates answer in customer's language
+Classify call → intent / sentiment / key_points / suggested_action
 
 ---
 
-## KNOWN ISSUES / TODO
-
-```
-❌ ElevenLabs API key returning 401 — needs renewal from dashboard
-❌ nvidia driver crashed after kernel update — needs: sudo pacman -S nvidia nvidia-utils + reboot
-❌ IndicTrans2 not implemented (gTTS used instead for now)
-❌ Session store in-memory (lost on restart) — Redis swap needed for prod
-❌ Confirmation gate designed but not wired (before create_complaint / escalate)
-❌ Loading UX messages ("fetching data...") not implemented yet
-❌ Whisper model: faster-whisper active (openai-whisper also installed from source)
-⚠️  click downgraded to 8.1.8 for gtts — typer needs >=8.2.1, fixed with: pip install "click>=8.2.1"
-```
+## Multilingual
+After auth, bot asks language. Customer says "Tamil" or "தமிழ்" → session["language"] = "ta".
+Gemini reasons in English internally, writes response field in target language only.
+Supported: en, ta, hi, te, kn, bn, ml, gu, mr, pa
 
 ---
 
-## WHISPER SETUP
-
-```
-Installed:    openai-whisper from git (pip install . in cloned repo)
-              faster-whisper also present → takes priority in whisper_engine.py
-Model:        small (int8 on CPU)
-Load:         Once at server startup in background daemon thread
-RAM:          ~461MB stays in RAM for all sessions
-Cleanup:      atexit.register(_unload_model) — releases on server shutdown
-Cache:        ~/.cache/whisper/small.pt
-              Was corrupted (0 bytes) — deleted and redownloaded via wget
-```
+## Frontend Summary Panel
+LOCKED → before auth
+PARTIAL LIVE → after DOB auth (name, ID, live intents, sentiment)
+FULL READY → after End Call (duration, turns, AI summary, key points, agent action)
 
 ---
 
-## DEMO CUSTOMERS
-
-```
-DOB: 15-03-1999 → Arjun Kumar (DCID-4521)
-     ORD-4521 Laptop Stand (Delivered)
-     ORD-4522 Wireless Mouse (Out for Delivery)
-     Bill Rs.2400 due 2024-03-20 (unpaid)
-     CMP-001 Billing overcharge (open)
-
-DOB: 20-05-1995 → Priya Sharma (DCID-7891)
-     ORD-7891 Bluetooth Speaker (Processing)
-     Bill Rs.1800 due 2024-03-25 (autopay on)
-```
-
----
-
-## DB OPERATIONS
-
-```
-load_customer(dob)
-get_order_status(dob, order_id)
-get_order_tracking(dob, order_id)
-get_current_bill(dob)
-get_payment_history(dob)
-get_complaint_status(dob, complaint_id)
-create_complaint(dob, issue)
-escalate_complaint(dob, complaint_id)
-save_session(dob, session_data)
-```
-
-Production swap: replace _load_db() with PostgreSQL. Nothing above changes.
-
----
-
-## ENDPOINTS
-
-```
-GET  /              → index.html
-GET  /health        → { status, model, stt: "ready"|"loading", chain }
-POST /session/start → { session_id, audio_b64, stt_ready }
-POST /send          → { session_id, transcript, response, intent,
-                         audio_b64, db_result, summary, language,
-                         stt_ready, ended }
-POST /session/end   → { summary, audio_b64 }
-```
-
----
-
-## SESSION FIELDS
-
-```python
-{
-    "session_id":          str,
-    "authenticated":       bool,
-    "customer_dob":        str | None,
-    "customer_name":       str | None,
-    "customer_id":         str | None,
-    "language":            str,   # "en"|"ta"|"hi"|"te"|"kn" etc — locked after selection
-    "language_confirmed":  bool,  # gate — must confirm before main flow
-    "start_time":          ISO str,
-    "turns":               list,
-    "intents_seen":        list,
-    "sentiment_trajectory": list,
-    "escalated":           bool,
-    "last_active":         ISO str,
-}
-```
-
----
-
-## TEST SUITE
-
-```
-File:    tests/test_deep_care.py
-Count:   62 tests
-Passing: 61/62 (1 flaky — complaint status test, DB state order dependent)
-Run:     pytest tests/test_deep_care.py -v
-
-Groups:
-  TestDBHandler        — 20 tests (all 9 DB ops, valid + invalid inputs)
-  TestDOBAuth          — 11 tests (numeric, natural language, ISO, garbage)
-  TestSessionManager   —  9 tests (lifecycle, sentiment, last-N turns)
-  TestChain            —  7 tests (mocked Gemini, JSON fallback, fence stripping)
-  TestHallucinationGuard — 3 tests (DB is source of truth, not Gemini)
-  TestAutoEscalation   —  3 tests (2x negative, 1x no trigger, bot keeps running)
-  TestExecuteDBTool    —  9 tests (all intent branches, unknown → {}, exceptions)
-```
-
----
-
-## HOW TO RUN
-
+## ElevenLabs Fix
 ```bash
-source .env3.11/bin/activate
-sh run.sh
-# → uvicorn on https://0.0.0.0:8000 with SSL
-
-# Run tests
-source .env3.11/bin/activate
-pytest tests/test_deep_care.py -v
+# Go to elevenlabs.io → Profile → API Keys → regenerate
+# Paste in config.env:
+ELEVENLABS_API_KEY=sk_...
+# If blank → gTTS fallback activates, works for all languages
 ```
 
 ---
 
-## FILES CHANGED THIS SESSION
-
-```
-server.py               — background Whisper load, language gate, auto-escalation
-src/stt/whisper_engine.py — load_model_at_startup(), atexit cleanup
-src/tts/elevenlabs_client.py — multilingual gTTS, detect_language_choice()
-src/llm/chain.py        — gemini-2.5-flash, LANG_NAMES, lang param in prompt
-src/session/session_manager.py — language + language_confirmed fields
-static/script.js        — race condition fix, endCall(), STT polling, lang display
-requirements.txt        — google-genai replaces google-generativeai, gtts added
-tests/test_deep_care.py — 62 tests, complaint status test made order-independent
+## PostgreSQL Switch
+```bash
+sudo pacman -S postgresql
+sudo -u postgres initdb -D /var/lib/postgres/data
+sudo systemctl enable --now postgresql
+sudo -u postgres createuser --superuser zagot
+psql -d postgres -f setup_postgres.sql
+# config.env:
+DB_BACKEND=postgres
+DATABASE_URL=postgresql://zagot@localhost/deepcare
 ```
 
 ---
 
-## FUTURE SCOPE
+## Demo Customers
+| DOB | Name | Key Scenario |
+|---|---|---|
+| 15-03-1999 | Arjun Kumar | Unpaid bill + open complaint CMP-001 |
+| 20-05-1995 | Priya Sharma | Autopay on, order processing |
 
+---
+
+## Environment
 ```
-Immediate:
-  - Fix ElevenLabs key
-  - Fix nvidia driver (sudo pacman -S nvidia nvidia-utils && reboot)
-  - Wire confirmation gate before destructive actions
-  - Add Redis for persistent sessions
-  - Loading UX messages while DB/AI fetches
-
-Product:
-  - Outbound calling (payment reminders, delivery updates)
-  - WhatsApp / IVR via Twilio or Exotel
-  - Agent dashboard with live session view
-  - Post-call analytics
-
-AI:
-  - Streaming TTS (reduce perceived latency from ~3s to ~0.5s)
-  - Voice biometrics (replace DOB auth)
-  - Emotion detection from audio
-  - RAG over company knowledge base
-
-Enterprise:
-  - Multi-tenant deployment
-  - CRM integration (Salesforce, Zoho, Freshdesk)
-  - Compliance recording + search
-  - SLA monitoring per intent type
+Python:  3.11.14  venv: .env3.11
+OS:      Arch Linux
+GPU:     RTX 4050 6GB — driver crashed, fix: sudo pacman -S nvidia nvidia-utils && sudo reboot
+Whisper: faster-whisper small int8 CPU, ~461MB at ~/.cache/whisper/
+Run:     sh run.sh
 ```
+
+---
+
+## Known Issues
+1. ElevenLabs 401 — key expired, renew at elevenlabs.io, gTTS fallback active
+2. nvidia driver dead — kernel update broke it, needs reinstall
+3. STT latency 3-4s on CPU — add filler audio to mask it (TODO)
+4. PostgreSQL not yet tested end-to-end (JSON backend works fine)
+
+---
+
+## TODO
+- [ ] Filler audio to mask STT/LLM latency
+- [ ] Confirmation gate before lodge_complaint / escalate
+- [ ] Redis session store for production
+- [ ] Renew ElevenLabs key
+- [ ] Test PostgreSQL end-to-end

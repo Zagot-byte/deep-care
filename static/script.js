@@ -1,293 +1,301 @@
-const btn = document.getElementById('mic-btn');
-const wrap = document.getElementById('mic-wrap');
-const status = document.getElementById('call-status');
-const waveform = document.getElementById('waveform');
-const liveText = document.getElementById('live-transcript');
-const convoLog = document.getElementById('convo-log');
-const sysStatus = document.getElementById('sys-status');
-const endBtn = document.getElementById('end-call-btn');  // ← add this button in HTML
+'use strict';
 
-let recorder, chunks = [], stream, recording = false;
-let sessionId = null;
+// ── DOM refs ────────────────────────────────────────────────
+const micBtn     = document.getElementById('mic-btn');
+const micIcon    = document.getElementById('mic-icon');
+const micStatus  = document.getElementById('mic-status');
+const endBtn     = document.getElementById('end-btn');
+const sysDot     = document.getElementById('sys-dot');
+const sysLabel   = document.getElementById('sys-label');
+const elapsed    = document.getElementById('elapsed');
+const turnsDisp  = document.getElementById('turns-disp');
+const langDisp   = document.getElementById('lang-disp');
+const liveDot    = document.getElementById('live-dot');
+const liveTx     = document.getElementById('live-tx');
+const convoLog   = document.getElementById('convo-log');
+const convoCount = document.getElementById('convo-count');
+const sumBadge   = document.getElementById('sum-badge');
+const sumLocked  = document.getElementById('sum-locked');
+const sumPartial = document.getElementById('sum-partial');
+const sumFull    = document.getElementById('sum-full');
+
+// ── State ───────────────────────────────────────────────────
+let sessionId    = null;
+let sessionReady = false;
+let callEnded    = false;
+let recording    = false;
+let recorder, chunks = [], stream;
 let currentAudio = null;
 let sessionStart = null;
-let turnCount = 0;
-let sessionReady = false;   // ← race condition guard
-let callEnded = false;      // ← prevent double-end
+let turnCount    = 0;
+let elapsedTimer = null;
+let convoEmpty   = document.getElementById('convo-empty');
 
-// ── START SESSION ON PAGE LOAD ────────────────
+// ── Session start ───────────────────────────────────────────
 window.addEventListener('load', async () => {
-    try {
-        setStatus('Connecting…', 'waiting');
-        const res = await fetch('/session/start', { method: 'POST' });
-        const data = await res.json();
-        sessionId = data.session_id;
-        sessionStart = new Date();
-        sessionReady = true;   // ← now safe to send audio
+  setSys('wait', 'CONNECTING');
+  try {
+    const res  = await fetch('/session/start', { method: 'POST' });
+    const data = await res.json();
+    sessionId    = data.session_id;
+    sessionStart = Date.now();
+    sessionReady = true;
+    startTimer();
 
-        // Show STT loading state if whisper still warming up
-        if (!data.stt_ready) {
-            sysStatus.textContent = 'STT Loading…';
-            setStatus('AI warming up, please wait…', 'waiting');
-            await waitForSTT();
-        }
-
-        sysStatus.textContent = 'Session Started';
-        setStatus('Tap to speak', '');
-        if (data.audio_b64) playAudio(data.audio_b64);
-
-        // Enable buttons now that session is ready
-        btn.disabled = false;
-        if (endBtn) endBtn.disabled = false;
-
-    } catch (e) {
-        console.error('Session start failed:', e);
-        sysStatus.textContent = 'Server Offline';
-        setStatus('Cannot connect to server', 'error');
+    if (!data.stt_ready) {
+      setSys('wait', 'STT LOADING');
+      await waitSTT();
     }
+
+    setSys('ok', 'READY');
+    micBtn.disabled = false;
+    endBtn.disabled = false;
+    if (data.audio_b64) playAudio(data.audio_b64);
+  } catch (e) {
+    setSys('error', 'OFFLINE');
+    liveTx.textContent = 'Cannot reach server — is uvicorn running?';
+  }
 });
 
-// Poll /health until stt = ready
-async function waitForSTT() {
-    for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 2000));
-        try {
-            const res = await fetch('/health');
-            const data = await res.json();
-            if (data.stt === 'ready') {
-                sysStatus.textContent = 'STT Ready';
-                return;
-            }
-            sysStatus.textContent = `STT Loading… (${i * 2}s)`;
-        } catch {}
-    }
+async function waitSTT() {
+  for (let i = 0; i < 60; i++) {
+    await sleep(2000);
+    try {
+      const d = await (await fetch('/health')).json();
+      if (d.stt === 'ready') return;
+      setSys('wait', `STT ${i * 2}s`);
+    } catch {}
+  }
 }
 
-// ── MIC BUTTON ────────────────────────────────
-btn.addEventListener('click', async () => {
-    if (!sessionReady) {
-        setStatus('Session not ready yet…', 'waiting');
-        return;
-    }
-    if (callEnded) return;
-    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-    recording ? stopRecording() : await startRecording();
+// ── Timer ───────────────────────────────────────────────────
+function startTimer() {
+  elapsedTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - sessionStart) / 1000);
+    elapsed.textContent = pad(Math.floor(s / 60)) + ':' + pad(s % 60);
+  }, 1000);
+}
+
+// ── Mic ─────────────────────────────────────────────────────
+micBtn.addEventListener('click', async () => {
+  if (!sessionReady || callEnded) return;
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  recording ? stopRec() : await startRec();
 });
 
-async function startRecording() {
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (err) {
-        setStatus(`Mic error: ${err.message}`, 'error');
-        return;
-    }
-    chunks = [];
-    recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-    recorder.onstop = sendAudio;
-    recorder.start();
-    recording = true;
-    btn.classList.add('recording');
-    wrap.classList.add('recording');
-    waveform.classList.add('active');
-    setStatus('Recording… tap to stop', 'active');
-    sysStatus.textContent = 'Recording';
+async function startRec() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    setSys('error', 'MIC DENIED');
+    liveTx.textContent = e.message;
+    return;
+  }
+  chunks   = [];
+  recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = sendAudio;
+  recorder.start();
+  recording = true;
+  micBtn.classList.add('recording');
+  micStatus.textContent = 'TAP TO STOP';
+  liveDot.classList.add('on');
+  liveTx.textContent = '…';
+  liveTx.classList.add('on');
+  setSys('active', 'RECORDING');
+  setMicIcon('stop');
 }
 
-function stopRecording() {
-    recorder?.stop();
-    stream?.getTracks().forEach(t => t.stop());
-    recording = false;
-    btn.classList.remove('recording');
-    wrap.classList.remove('recording');
-    waveform.classList.remove('active');
-    setStatus('Processing…', 'waiting');
-    sysStatus.textContent = 'Processing';
+function stopRec() {
+  recorder?.stop();
+  stream?.getTracks().forEach(t => t.stop());
+  recording = false;
+  micBtn.classList.remove('recording');
+  micStatus.textContent = 'PROCESSING…';
+  liveDot.classList.remove('on');
+  liveTx.classList.remove('on');
+  setSys('wait', 'PROCESSING');
+  setMicIcon('mic');
 }
 
-// ── SEND AUDIO ────────────────────────────────
+// ── Send audio ──────────────────────────────────────────────
 async function sendAudio() {
-    if (callEnded) return;
+  if (callEnded) return;
+  const blob = new Blob(chunks, { type: 'audio/webm' });
+  try {
+    const res  = await fetch('/send', {
+      method:  'POST',
+      headers: { 'Content-Type': 'audio/webm', 'x-session-id': sessionId || '' },
+      body:    blob,
+    });
+    const data = await res.json();
 
-    const blob = new Blob(chunks, { type: 'audio/webm' });
-    try {
-        const res = await fetch('/send', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'audio/webm',
-                'x-session-id': sessionId || ''
-            },
-            body: blob,
-        });
+    if (data.session_id) sessionId = data.session_id;
 
-        const data = await res.json();
-
-        if (data.session_id) sessionId = data.session_id;
-
-        const transcript = data.transcript || '';
-        const botReply   = data.response   || '';
-
-        updateLiveTranscript(transcript);
-        if (transcript) addTurn('user', transcript);
-        if (botReply)   addTurn('bot', botReply);
-
-        if (data.audio_b64) playAudio(data.audio_b64);
-
-        // Show current language in UI
-        if (data.language && data.language !== 'en') {
-            sysStatus.textContent = `Active · ${data.language.toUpperCase()}`;
-        } else {
-            sysStatus.textContent = 'Active';
-        }
-
-        setStatus('Received ✓', 'ok');
-        setTimeout(() => setStatus('Tap to speak', ''), 3500);
-
-        if (data.summary) renderSummary(data.summary);
-        else updateSummaryFromConvo();
-
-        // Auto end if bot said goodbye
-        if (data.intent === 'goodbye' || data.ended) {
-            setTimeout(() => endCall(), 2000);  // wait for audio to finish
-        }
-
-    } catch (e) {
-        console.error(e);
-        setStatus('Error — check server', 'error');
-        sysStatus.textContent = 'Error';
+    // Live transcript
+    if (data.transcript) {
+      liveTx.textContent = data.transcript;
+      liveTx.classList.add('on');
+      setTimeout(() => liveTx.classList.remove('on'), 3000);
     }
+
+    // Language
+    if (data.language) langDisp.textContent = data.language.toUpperCase();
+
+    // Conversation turns
+    if (data.transcript) addTurn('user', data.transcript);
+    if (data.response)   addTurn('bot',  data.response);
+
+    // Audio
+    if (data.audio_b64) playAudio(data.audio_b64);
+
+    setSys('ok', data.language && data.language !== 'en'
+      ? 'ACTIVE · ' + data.language.toUpperCase() : 'ACTIVE');
+    micStatus.textContent = 'TAP TO SPEAK';
+
+    // Partial summary after auth
+    if (data.summary) renderPartial(data.summary);
+
+    // Auto end on goodbye intent
+    if (data.intent === 'goodbye' || data.ended) setTimeout(endCall, 2000);
+
+  } catch (e) {
+    console.error(e);
+    setSys('error', 'ERROR');
+    micStatus.textContent = 'TAP TO SPEAK';
+  }
 }
 
-// ── END CALL ──────────────────────────────────
-if (endBtn) {
-    endBtn.addEventListener('click', () => endCall());
-}
+// ── End call ────────────────────────────────────────────────
+endBtn.addEventListener('click', endCall);
 
 async function endCall() {
-    if (callEnded) return;
-    callEnded = true;
+  if (callEnded) return;
+  callEnded = true;
+  if (recording) stopRec();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  clearInterval(elapsedTimer);
+  micBtn.disabled = true;
+  endBtn.disabled = true;
+  setSys('error', 'ENDING');
+  micStatus.textContent = 'CALL ENDED';
+  addTurn('sys', '— Call ended · Generating handoff card —');
 
-    // Stop any ongoing recording
-    if (recording) stopRecording();
-    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-
-    // Disable UI
-    btn.disabled = true;
-    if (endBtn) endBtn.disabled = true;
-    setStatus('Call ended', '');
-    sysStatus.textContent = 'Ended';
-
-    try {
-        const res = await fetch('/session/end', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId }),
-        });
-        const data = await res.json();
-
-        if (data.audio_b64) playAudio(data.audio_b64);
-        if (data.summary)   renderSummary(data.summary);
-
-        sysStatus.textContent = 'Session Complete';
-        addTurn('bot', '— Call ended. Summary saved. —');
-
-    } catch (e) {
-        console.error('End call failed:', e);
-    }
+  try {
+    const res  = await fetch('/session/end', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ session_id: sessionId }),
+    });
+    const data = await res.json();
+    if (data.audio_b64) playAudio(data.audio_b64);
+    if (data.summary)   renderFull(data.summary);
+    setSys('ok', 'COMPLETE');
+  } catch (e) {
+    console.error(e);
+    setSys('error', 'END FAILED');
+  }
 }
 
-// ── PLAY AUDIO ────────────────────────────────
+// ── Audio ───────────────────────────────────────────────────
 function playAudio(b64) {
-    const binary = atob(b64);
-    const bytes  = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: 'audio/mpeg' });
-    const url  = URL.createObjectURL(blob);
-    currentAudio = new Audio(url);
-    currentAudio.play();
-    currentAudio.onended = () => URL.revokeObjectURL(url);
+  const bin   = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+  currentAudio = new Audio(url);
+  currentAudio.play().catch(e => console.warn(e));
+  currentAudio.onended = () => URL.revokeObjectURL(url);
 }
 
-// ── CONVERSATION LOG ──────────────────────────
+// ── Conversation ────────────────────────────────────────────
 function addTurn(role, text) {
-    turnCount++;
-    const div = document.createElement('div');
-    div.className = `turn ${role}`;
-    div.innerHTML = `
-        <div class="turn-label">${role === 'user' ? 'You' : 'Deep Care AI'}</div>
-        <div class="turn-text">${escHtml(text)}</div>
-    `;
-    convoLog.appendChild(div);
-    convoLog.scrollTop = convoLog.scrollHeight;
+  turnCount++;
+  turnsDisp.textContent  = turnCount;
+  convoCount.textContent = turnCount + ' turns';
+  if (convoEmpty) { convoEmpty.remove(); convoEmpty = null; }
+
+  const ts  = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const tag = role === 'user' ? 'CALLER' : role === 'bot' ? 'DEEP CARE AI' : 'SYSTEM';
+  const div = document.createElement('div');
+  div.className = 'turn ' + role;
+  div.innerHTML = `
+    <div class="turn-meta">
+      <span class="turn-tag">${tag}</span>
+      <span class="turn-ts">${ts}</span>
+    </div>
+    <div class="turn-text">${esc(text)}</div>`;
+  convoLog.appendChild(div);
+  convoLog.scrollTop = convoLog.scrollHeight;
 }
 
-function updateLiveTranscript(text) {
-    liveText.textContent = text || '—';
+// ── Summary partial (after auth) ────────────────────────────
+function renderPartial(data) {
+  sumLocked.classList.add('hidden');
+  sumPartial.classList.remove('hidden');
+  sumBadge.textContent = 'LIVE';
+  sumBadge.className   = 'badge partial';
+
+  setText('s-name', data.name);
+  setText('s-cid',  data.customer_id);
+  setText('s-dob',  data.dob);
+  setText('s-lang', (data.language || 'en').toUpperCase());
+
+  const iw = document.getElementById('s-intents');
+  iw.innerHTML = '';
+  (data.intents || []).forEach(i => {
+    const c = document.createElement('span');
+    c.className = 'chip'; c.textContent = i.toUpperCase();
+    iw.appendChild(c);
+  });
+
+  const sent = data.sentiment || 'neutral';
+  document.getElementById('s-sentiment').innerHTML =
+    `<span class="sent ${sent}">${sent.toUpperCase()}</span>`;
 }
 
-// ── SUMMARY ───────────────────────────────────
-function renderSummary(data) {
-    document.getElementById('summary-empty').style.display = 'none';
-    const card = document.getElementById('summary-card');
-    card.classList.add('visible');
+// ── Summary full (after end call) ───────────────────────────
+function renderFull(data) {
+  renderPartial(data);
+  sumFull.classList.remove('hidden');
+  sumBadge.textContent = 'READY';
+  sumBadge.className   = 'badge ready';
 
-    document.getElementById('s-name').textContent     = data.name || '—';
-    document.getElementById('s-dob').textContent      = data.dob || data.customer_id || '—';
-    document.getElementById('s-duration').textContent = data.duration || formatDuration(new Date() - sessionStart);
-    document.getElementById('s-time').textContent     = data.time || new Date().toLocaleTimeString();
-    document.getElementById('s-summary').textContent  = data.summary || '—';
-    document.getElementById('s-action').textContent   = data.suggested_action || data.action || '—';
-    document.getElementById('s-footer').textContent   = `Session · ${data.duration || '—'} · ${turnCount} turns`;
+  setText('s-duration', data.duration);
+  setText('s-turns',    data.turns || turnCount);
+  setText('s-time',     data.time  || new Date().toLocaleTimeString());
+  setText('s-esc',      data.escalated ? 'YES' : 'NO');
+  setText('s-summary',  data.summary);
+  setText('s-action',   data.suggested_action);
 
-    const badge = document.getElementById('s-sentiment');
-    const sent  = data.sentiment || 'neutral';
-    badge.textContent = sent.charAt(0).toUpperCase() + sent.slice(1);
-    badge.className   = `sentiment-badge ${sent}`;
-
-    const intentRow = document.getElementById('s-intents');
-    intentRow.innerHTML = '';
-    (data.intents || data.intents_seen || []).forEach(i => {
-        const tag = document.createElement('span');
-        tag.className   = 'intent-tag';
-        tag.textContent = i;
-        intentRow.appendChild(tag);
-    });
-
-    const kpList = document.getElementById('s-keypoints');
-    kpList.innerHTML = '';
-    (data.key_points || data.keyPoints || []).forEach(p => {
-        const li = document.createElement('li');
-        li.textContent = p;
-        kpList.appendChild(li);
-    });
+  const kl = document.getElementById('s-keypoints');
+  kl.innerHTML = '';
+  (data.key_points || []).forEach(p => {
+    const li = document.createElement('li');
+    li.textContent = p; kl.appendChild(li);
+  });
 }
 
-function updateSummaryFromConvo() {
-    const userTexts = [...convoLog.querySelectorAll('.turn.user .turn-text')].map(el => el.textContent);
-    if (!userTexts.length) return;
-    const combined = userTexts.join(' ').toLowerCase();
-    const neg = ['frustrated', 'wrong', 'problem', 'complaint', 'issue'].filter(w => combined.includes(w)).length;
-    const pos = ['thank', 'great', 'happy', 'resolved'].filter(w => combined.includes(w)).length;
-    renderSummary({
-        name:             document.getElementById('s-name').textContent || 'Customer',
-        sentiment:        neg > 1 ? 'negative' : pos > 0 ? 'positive' : 'neutral',
-        duration:         formatDuration(new Date() - sessionStart),
-        intents:          [],
-        key_points:       [...convoLog.querySelectorAll('.turn.bot .turn-text')].slice(-3).map(el => el.textContent.slice(0, 80)),
-        summary:          `${turnCount} turns completed.`,
-        suggested_action: neg > 1 ? 'Follow up within 24 hours.' : 'No immediate action needed.'
-    });
+// ── Helpers ─────────────────────────────────────────────────
+function setSys(state, label) {
+  sysDot.className    = 'sys-dot '   + state;
+  sysLabel.className  = 'sys-label ' + state;
+  sysLabel.textContent = label;
 }
-
-// ── HELPERS ───────────────────────────────────
-function setStatus(msg, cls = '') {
-    status.textContent = msg;
-    status.className   = cls;
+function setMicIcon(mode) {
+  micIcon.innerHTML = mode === 'stop'
+    ? '<rect x="6" y="6" width="12" height="12" rx="2"/>'
+    : `<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+       <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+       <line x1="12" y1="19" x2="12" y2="23"/>
+       <line x1="8" y1="23" x2="16" y2="23"/>`;
 }
-function escHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val || '—';
 }
-function formatDuration(ms) {
-    const s = Math.floor(ms / 1000);
-    return `${Math.floor(s / 60)}m ${s % 60}s`;
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+function pad(n) { return String(n).padStart(2, '0'); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

@@ -1,0 +1,13 @@
+   dob     |       name       | customer_id | orders | complaints 
+------------+------------------+-------------+--------+------------
+ 11-08-1985 | Vikram Desai     | DCID-1156   |      3 |          1
+ 17-12-1975 | Suresh Iyer      | DCID-2210   |      1 |          1
+ 08-11-1988 | Ravi Shankar     | DCID-3301   |      2 |          1
+ 22-01-1980 | Lakshmi Krishnan | DCID-3378   |      1 |          2
+ 15-03-1999 | Arjun Kumar      | DCID-4521   |      2 |          1
+ 14-07-1992 | Meena Pillai     | DCID-5512   |      1 |          2
+ 03-02-1990 | Karthik Nair     | DCID-6623   |      3 |          0
+ 20-05-1995 | Priya Sharma     | DCID-7891   |      1 |          0
+ 25-09-1997 | Ananya Bose      | DCID-8834   |      2 |          1
+ 30-04-1993 | Divya Menon      | DCID-9945   |      2 |          0
+(10 rows)

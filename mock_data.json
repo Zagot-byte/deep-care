@@ -36,10 +36,23 @@
           "amount": 2400,
           "due_date": "2024-03-20",
           "paid": false,
-          "breakdown": { "base_plan": 1999, "add_ons": 401 },
+          "breakdown": {
+            "base_plan": 1999,
+            "add_ons": 401
+          },
           "history": [
-            { "month": "Feb 2024", "amount": 2100, "paid": true, "paid_on": "2024-02-18" },
-            { "month": "Jan 2024", "amount": 1950, "paid": true, "paid_on": "2024-01-15" }
+            {
+              "month": "Feb 2024",
+              "amount": 2100,
+              "paid": true,
+              "paid_on": "2024-02-18"
+            },
+            {
+              "month": "Jan 2024",
+              "amount": 1950,
+              "paid": true,
+              "paid_on": "2024-01-15"
+            }
           ],
           "dispute": null,
           "autopay": false
@@ -82,14 +95,38 @@
           "amount": 1800,
           "due_date": "2024-03-25",
           "paid": false,
-          "breakdown": { "base_plan": 1499, "add_ons": 301 },
+          "breakdown": {
+            "base_plan": 1499,
+            "add_ons": 301
+          },
           "history": [],
           "dispute": null,
           "autopay": true
         }
       ],
       "complaints": [],
-      "session_history": []
+      "session_history": [
+        {
+          "name": "Priya Sharma",
+          "customer_id": "DCID-7891",
+          "dob": "20-05-1995",
+          "duration": "2m 40s",
+          "time": "03:21:41",
+          "sentiment": "positive",
+          "intents": [
+            "auth_success",
+            "general"
+          ],
+          "summary": "Customer contacted support with 2 query type(s) across 3 turns.",
+          "key_points": [
+            "Welcome back, Priya Sharma! Great! Which language would you like to continue in?",
+            "I'm having trouble right now. Could you repeat that?",
+            "I'm having trouble right now. Could you repeat that?"
+          ],
+          "suggested_action": "No immediate follow-up needed.",
+          "escalated": false
+        }
+      ]
     }
   }
 }
