@@ -68,7 +68,28 @@
           "resolution": null
         }
       ],
-      "session_history": []
+      "session_history": [
+        {
+          "name": "Arjun Kumar",
+          "customer_id": "DCID-4521",
+          "dob": "15-03-1999",
+          "duration": "1m 44s",
+          "time": "05:19:09",
+          "sentiment": "positive",
+          "intents": [
+            "auth_success",
+            "general"
+          ],
+          "summary": "Customer contacted support with 2 query type(s) across 3 turns.",
+          "key_points": [
+            "Welcome back, Arjun Kumar! Great! Which language would you like to continue in? ",
+            "I'm having trouble right now. Could you repeat that?",
+            "I'm having trouble right now. Could you repeat that?"
+          ],
+          "suggested_action": "No immediate follow-up needed.",
+          "escalated": false
+        }
+      ]
     },
     "20-05-1995": {
       "name": "Priya Sharma",
@@ -110,16 +131,17 @@
           "name": "Priya Sharma",
           "customer_id": "DCID-7891",
           "dob": "20-05-1995",
-          "duration": "2m 40s",
-          "time": "03:21:41",
+          "duration": "1m 50s",
+          "time": "04:50:37",
           "sentiment": "positive",
           "intents": [
             "auth_success",
             "general"
           ],
-          "summary": "Customer contacted support with 2 query type(s) across 3 turns.",
+          "summary": "Customer contacted support with 2 query type(s) across 4 turns.",
           "key_points": [
             "Welcome back, Priya Sharma! Great! Which language would you like to continue in?",
+            "I'm having trouble right now. Could you repeat that?",
             "I'm having trouble right now. Could you repeat that?",
             "I'm having trouble right now. Could you repeat that?"
           ],
@@ -127,6 +149,325 @@
           "escalated": false
         }
       ]
+    },
+    "10-07-1988": {
+      "name": "Ravi Menon",
+      "customer_id": "DCID-3310",
+      "phone": "+91-9988776655",
+      "email": "ravi.menon@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-3310",
+          "item": "Office Chair",
+          "status": "Delivered",
+          "tracking": "TRK771001",
+          "address": "8 Residency Road, Hyderabad",
+          "delivery_date": "2024-02-20",
+          "amount": 8999,
+          "refund": null,
+          "return": {
+            "status": "Return Requested",
+            "reason": "Product defective",
+            "requested_on": "2024-03-02"
+          }
+        },
+        {
+          "order_id": "ORD-3311",
+          "item": "Desk Lamp",
+          "status": "Delivered",
+          "tracking": "TRK771002",
+          "address": "8 Residency Road, Hyderabad",
+          "delivery_date": "2024-02-28",
+          "amount": 1199,
+          "refund": {
+            "status": "Refund Processed",
+            "amount": 1199,
+            "processed_on": "2024-03-05"
+          },
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-003",
+          "month": "March 2024",
+          "amount": 3200,
+          "due_date": "2024-03-22",
+          "paid": true,
+          "breakdown": {
+            "base_plan": 2499,
+            "add_ons": 701
+          },
+          "history": [
+            {
+              "month": "Feb 2024",
+              "amount": 3100,
+              "paid": true,
+              "paid_on": "2024-02-20"
+            },
+            {
+              "month": "Jan 2024",
+              "amount": 2900,
+              "paid": true,
+              "paid_on": "2024-01-19"
+            }
+          ],
+          "dispute": null,
+          "autopay": false
+        }
+      ],
+      "complaints": [
+        {
+          "complaint_id": "CMP-101",
+          "issue": "Office chair received with broken armrest",
+          "status": "open",
+          "created": "2024-03-02",
+          "escalated": false,
+          "resolution": null
+        }
+      ],
+      "session_history": []
+    },
+    "05-11-1990": {
+      "name": "Sunita Patel",
+      "customer_id": "DCID-6642",
+      "phone": "+91-9345612780",
+      "email": "sunita.patel@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-6642",
+          "item": "Air Purifier",
+          "status": "Delivered",
+          "tracking": "TRK662001",
+          "address": "22 Navrangpura, Ahmedabad",
+          "delivery_date": "2024-02-15",
+          "amount": 12499,
+          "refund": null,
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-004",
+          "month": "March 2024",
+          "amount": 4500,
+          "due_date": "2024-03-10",
+          "paid": false,
+          "breakdown": {
+            "base_plan": 3999,
+            "add_ons": 501
+          },
+          "history": [
+            {
+              "month": "Feb 2024",
+              "amount": 4200,
+              "paid": true,
+              "paid_on": "2024-02-12"
+            }
+          ],
+          "dispute": null,
+          "autopay": false
+        }
+      ],
+      "complaints": [
+        {
+          "complaint_id": "CMP-201",
+          "issue": "Overcharged on March bill \u2014 base plan incorrect",
+          "status": "escalated",
+          "created": "2024-03-08",
+          "escalated": true,
+          "resolution": null
+        },
+        {
+          "complaint_id": "CMP-202",
+          "issue": "Air purifier remote not working",
+          "status": "resolved",
+          "created": "2024-02-18",
+          "escalated": false,
+          "resolution": "Replacement remote dispatched on 2024-02-22"
+        }
+      ],
+      "session_history": []
+    },
+    "22-08-1993": {
+      "name": "Karthik Subramanian",
+      "customer_id": "DCID-9901",
+      "phone": "+91-9600123456",
+      "email": "karthik.s@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-9901",
+          "item": "Smart Watch",
+          "status": "Shipped",
+          "tracking": "TRK990101",
+          "address": "3 T Nagar, Chennai",
+          "delivery_date": "2024-03-12",
+          "amount": 5999,
+          "refund": null,
+          "return": null
+        },
+        {
+          "order_id": "ORD-9902",
+          "item": "Phone Case",
+          "status": "Delivered",
+          "tracking": "TRK990102",
+          "address": "3 T Nagar, Chennai",
+          "delivery_date": "2024-03-01",
+          "amount": 299,
+          "refund": null,
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-005",
+          "month": "March 2024",
+          "amount": 2999,
+          "due_date": "2024-03-28",
+          "paid": false,
+          "breakdown": {
+            "base_plan": 2499,
+            "add_ons": 500
+          },
+          "history": [
+            {
+              "month": "Feb 2024",
+              "amount": 2499,
+              "paid": true,
+              "paid_on": "2024-02-25"
+            },
+            {
+              "month": "Jan 2024",
+              "amount": 2499,
+              "paid": true,
+              "paid_on": "2024-01-25"
+            }
+          ],
+          "dispute": {
+            "reason": "Add-on charges not authorised",
+            "raised_on": "2024-03-05",
+            "status": "open"
+          },
+          "autopay": true
+        }
+      ],
+      "complaints": [],
+      "session_history": []
+    },
+    "14-02-1997": {
+      "name": "Fatima Shaikh",
+      "customer_id": "DCID-1123",
+      "phone": "+91-9711234567",
+      "email": "fatima.shaikh@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-1123",
+          "item": "Mixer Grinder",
+          "status": "Out for Delivery",
+          "tracking": "TRK112301",
+          "address": "17 Mohammed Ali Road, Mumbai",
+          "delivery_date": "2024-03-11",
+          "amount": 3499,
+          "refund": null,
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-006",
+          "month": "March 2024",
+          "amount": 999,
+          "due_date": "2024-03-30",
+          "paid": false,
+          "breakdown": {
+            "base_plan": 999,
+            "add_ons": 0
+          },
+          "history": [],
+          "dispute": null,
+          "autopay": false
+        }
+      ],
+      "complaints": [],
+      "session_history": []
+    },
+    "30-09-1985": {
+      "name": "Deepa Nair",
+      "customer_id": "DCID-5577",
+      "phone": "+91-9447890123",
+      "email": "deepa.nair@email.com",
+      "orders": [
+        {
+          "order_id": "ORD-5577",
+          "item": "Washing Machine",
+          "status": "Delivered",
+          "tracking": "TRK557701",
+          "address": "9 Palarivattom, Kochi",
+          "delivery_date": "2024-01-10",
+          "amount": 28999,
+          "refund": null,
+          "return": null
+        },
+        {
+          "order_id": "ORD-5578",
+          "item": "Extended Warranty",
+          "status": "Active",
+          "tracking": null,
+          "address": "9 Palarivattom, Kochi",
+          "delivery_date": "2024-01-10",
+          "amount": 1999,
+          "refund": null,
+          "return": null
+        }
+      ],
+      "bills": [
+        {
+          "bill_id": "BILL-007",
+          "month": "March 2024",
+          "amount": 5400,
+          "due_date": "2024-03-18",
+          "paid": false,
+          "breakdown": {
+            "base_plan": 4999,
+            "add_ons": 401
+          },
+          "history": [
+            {
+              "month": "Feb 2024",
+              "amount": 5400,
+              "paid": true,
+              "paid_on": "2024-02-17"
+            },
+            {
+              "month": "Jan 2024",
+              "amount": 5400,
+              "paid": true,
+              "paid_on": "2024-01-16"
+            }
+          ],
+          "dispute": null,
+          "autopay": false
+        }
+      ],
+      "complaints": [
+        {
+          "complaint_id": "CMP-301",
+          "issue": "Washing machine drum making loud noise",
+          "status": "resolved",
+          "created": "2024-02-01",
+          "escalated": false,
+          "resolution": "Technician visited on 2024-02-05, drum rebalanced"
+        },
+        {
+          "complaint_id": "CMP-302",
+          "issue": "Bill amount incorrect for January",
+          "status": "open",
+          "created": "2024-03-09",
+          "escalated": false,
+          "resolution": null
+        }
+      ],
+      "session_history": []
     }
   }
 }

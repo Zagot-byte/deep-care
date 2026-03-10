@@ -2,8 +2,10 @@
 server.py — Deep Care Voice Gateway
 Whisper loads in background thread — server accepts requests immediately.
 Multilingual: language selected after auth, locked for entire session.
+Rate limiting: 20 requests/minute per IP on /send.
 """
-import os, uuid, base64, asyncio, threading
+import os, uuid, base64, asyncio, threading, time
+from collections import defaultdict
 from dotenv import load_dotenv
 load_dotenv("config.env")
 
@@ -26,6 +28,32 @@ from src.session.summary_generator import generate_summary
 from src.llm.chain import run_chain
 
 app = FastAPI(title="Deep Care Voice Gateway")
+
+# ── Rate limiter ────────────────────────────────────────────
+# Sliding window: max RATE_LIMIT requests per RATE_WINDOW seconds per IP.
+RATE_LIMIT  = 20          # requests
+RATE_WINDOW = 60          # seconds
+_rate_store: dict[str, list[float]] = defaultdict(list)
+_rate_lock  = threading.Lock()
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.time()
+    with _rate_lock:
+        timestamps = _rate_store[ip]
+        # Drop timestamps outside the window
+        _rate_store[ip] = [t for t in timestamps if now - t < RATE_WINDOW]
+        if len(_rate_store[ip]) >= RATE_LIMIT:
+            return True
+        _rate_store[ip].append(now)
+        return False
+
+def _client_ip(request: Request) -> str:
+    # Respect X-Forwarded-For if behind a proxy
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 
 # ── Whisper readiness flag ──────────────────────────────────
 _whisper_ready = threading.Event()
@@ -68,7 +96,7 @@ async def root():
 async def health():
     return {
         "status": "ok",
-        "model":  "gemini-2.5-flash-preview-04-17",
+        "model":  "gemini-2.5-flash-preview-05-20",
         "stt":    "ready" if _whisper_ready.is_set() else "loading",
         "chain":  "direct-api",
     }
@@ -90,6 +118,26 @@ async def session_start():
 @app.post("/send")
 async def send(request: Request):
 
+    # ── Rate limit check ────────────────────────────────────
+    ip = _client_ip(request)
+    if _is_rate_limited(ip):
+        lang = "en"
+        try:
+            session_id = request.headers.get("x-session-id")
+            if session_id:
+                s = get_session(session_id)
+                if s:
+                    lang = s.get("language", "en")
+        except Exception:
+            pass
+        msg   = "You're sending too many requests. Please wait a moment."
+        audio = speak(msg, lang=lang)
+        return JSONResponse(
+            {"error": "rate_limited", "response": msg,
+             "audio_b64": base64.b64encode(audio).decode()},
+            status_code=429,
+        )
+
     # ── 1. Session ─────────────────────────────────────────
     session_id = request.headers.get("x-session-id")
     if not session_id:
@@ -99,7 +147,11 @@ async def send(request: Request):
     if session is None:
         create_session(session_id)
         session = get_session(session_id)
-    lang    = session.get("language", "en")
+    lang = session.get("language", "en")
+    if session.get("processing"):
+        audio = speak("Please wait.", lang=lang)
+        return _response(session_id, "", "Please wait.", audio)
+    session["processing"] = True
 
     # ── 2. Whisper readiness check ─────────────────────────
     if not _whisper_ready.is_set():

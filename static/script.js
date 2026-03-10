@@ -1,5 +1,4 @@
 'use strict';
-
 // ── DOM refs ────────────────────────────────────────────────
 const micBtn     = document.getElementById('mic-btn');
 const micIcon    = document.getElementById('mic-icon');
@@ -29,7 +28,26 @@ let currentAudio = null;
 let sessionStart = null;
 let turnCount    = 0;
 let elapsedTimer = null;
+let micLocked = false;
 let convoEmpty   = document.getElementById('convo-empty');
+
+// ── Mic lock: true while processing or audio is playing ─────
+
+function lockMic(status) {
+  micLocked = true;
+  micBtn.disabled = true;
+  micStatus.textContent = status || 'PROCESSING…';
+}
+
+function unlockMic() {
+  micLocked = false;
+  if (!callEnded) {
+    micBtn.disabled = false;
+    micStatus.textContent = 'TAP TO SPEAK';
+    setSys('ok', langDisp.textContent && langDisp.textContent !== 'EN'
+      ? 'ACTIVE · ' + langDisp.textContent : 'ACTIVE');
+  }
+}
 
 // ── Session start ───────────────────────────────────────────
 window.addEventListener('load', async () => {
@@ -41,12 +59,10 @@ window.addEventListener('load', async () => {
     sessionStart = Date.now();
     sessionReady = true;
     startTimer();
-
     if (!data.stt_ready) {
       setSys('wait', 'STT LOADING');
       await waitSTT();
     }
-
     setSys('ok', 'READY');
     micBtn.disabled = false;
     endBtn.disabled = false;
@@ -78,7 +94,7 @@ function startTimer() {
 
 // ── Mic ─────────────────────────────────────────────────────
 micBtn.addEventListener('click', async () => {
-  if (!sessionReady || callEnded) return;
+  if (!sessionReady || callEnded || micLocked) return;
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   recording ? stopRec() : await startRec();
 });
@@ -111,11 +127,12 @@ function stopRec() {
   stream?.getTracks().forEach(t => t.stop());
   recording = false;
   micBtn.classList.remove('recording');
-  micStatus.textContent = 'PROCESSING…';
+  setMicIcon('mic');
   liveDot.classList.remove('on');
   liveTx.classList.remove('on');
+  // Lock mic immediately — unlocks only after audio finishes
+  lockMic('PROCESSING…');
   setSys('wait', 'PROCESSING');
-  setMicIcon('mic');
 }
 
 // ── Send audio ──────────────────────────────────────────────
@@ -129,7 +146,6 @@ async function sendAudio() {
       body:    blob,
     });
     const data = await res.json();
-
     if (data.session_id) sessionId = data.session_id;
 
     // Live transcript
@@ -146,29 +162,29 @@ async function sendAudio() {
     if (data.transcript) addTurn('user', data.transcript);
     if (data.response)   addTurn('bot',  data.response);
 
-    // Audio
-    if (data.audio_b64) playAudio(data.audio_b64);
-
-    setSys('ok', data.language && data.language !== 'en'
-      ? 'ACTIVE · ' + data.language.toUpperCase() : 'ACTIVE');
-    micStatus.textContent = 'TAP TO SPEAK';
-
     // Partial summary after auth
     if (data.summary) renderPartial(data.summary);
 
     // Auto end on goodbye intent
     if (data.intent === 'goodbye' || data.ended) setTimeout(endCall, 2000);
 
+    // Play audio — mic unlocks only after playback finishes
+    if (data.audio_b64) {
+      lockMic('SPEAKING…');
+      playAudio(data.audio_b64, unlockMic);
+    } else {
+      unlockMic();
+    }
+
   } catch (e) {
     console.error(e);
     setSys('error', 'ERROR');
-    micStatus.textContent = 'TAP TO SPEAK';
+    unlockMic();   // always unblock on error
   }
 }
 
 // ── End call ────────────────────────────────────────────────
 endBtn.addEventListener('click', endCall);
-
 async function endCall() {
   if (callEnded) return;
   callEnded = true;
@@ -180,7 +196,6 @@ async function endCall() {
   setSys('error', 'ENDING');
   micStatus.textContent = 'CALL ENDED';
   addTurn('sys', '— Call ended · Generating handoff card —');
-
   try {
     const res  = await fetch('/session/end', {
       method:  'POST',
@@ -198,14 +213,22 @@ async function endCall() {
 }
 
 // ── Audio ───────────────────────────────────────────────────
-function playAudio(b64) {
+function playAudio(b64, onFinished) {
   const bin   = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   currentAudio = new Audio(url);
-  currentAudio.play().catch(e => console.warn(e));
-  currentAudio.onended = () => URL.revokeObjectURL(url);
+  currentAudio.play().catch(e => {
+    console.warn(e);
+    if (onFinished) onFinished();   // unblock even if autoplay fails
+  });
+  currentAudio.onended = () => {
+    URL.revokeObjectURL(url);
+    currentAudio = null;
+    if (onFinished) onFinished();
+  };
 }
 
 // ── Conversation ────────────────────────────────────────────
@@ -214,7 +237,6 @@ function addTurn(role, text) {
   turnsDisp.textContent  = turnCount;
   convoCount.textContent = turnCount + ' turns';
   if (convoEmpty) { convoEmpty.remove(); convoEmpty = null; }
-
   const ts  = new Date().toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
   const tag = role === 'user' ? 'CALLER' : role === 'bot' ? 'DEEP CARE AI' : 'SYSTEM';
   const div = document.createElement('div');
@@ -235,12 +257,10 @@ function renderPartial(data) {
   sumPartial.classList.remove('hidden');
   sumBadge.textContent = 'LIVE';
   sumBadge.className   = 'badge partial';
-
   setText('s-name', data.name);
   setText('s-cid',  data.customer_id);
   setText('s-dob',  data.dob);
   setText('s-lang', (data.language || 'en').toUpperCase());
-
   const iw = document.getElementById('s-intents');
   iw.innerHTML = '';
   (data.intents || []).forEach(i => {
@@ -248,7 +268,6 @@ function renderPartial(data) {
     c.className = 'chip'; c.textContent = i.toUpperCase();
     iw.appendChild(c);
   });
-
   const sent = data.sentiment || 'neutral';
   document.getElementById('s-sentiment').innerHTML =
     `<span class="sent ${sent}">${sent.toUpperCase()}</span>`;
@@ -260,14 +279,12 @@ function renderFull(data) {
   sumFull.classList.remove('hidden');
   sumBadge.textContent = 'READY';
   sumBadge.className   = 'badge ready';
-
   setText('s-duration', data.duration);
   setText('s-turns',    data.turns || turnCount);
   setText('s-time',     data.time  || new Date().toLocaleTimeString());
   setText('s-esc',      data.escalated ? 'YES' : 'NO');
   setText('s-summary',  data.summary);
   setText('s-action',   data.suggested_action);
-
   const kl = document.getElementById('s-keypoints');
   kl.innerHTML = '';
   (data.key_points || []).forEach(p => {
